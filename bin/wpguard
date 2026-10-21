@@ -1,0 +1,292 @@
+#!/usr/bin/env php
+<?php
+/**
+ * wpguard — WordPress plugin guideline + coding-standard checker.
+ */
+
+namespace WpGuard;
+
+if ( PHP_VERSION_ID < 70400 ) {
+	fwrite( STDERR, "wpguard needs PHP 7.4 or newer.\n" );
+	exit( 2 );
+}
+
+$base = dirname( __DIR__ );
+foreach ( array( 'Rules', 'Scanner', 'Checks', 'Phpcs', 'Reporter' ) as $cls ) {
+	require_once "$base/src/$cls.php";
+}
+
+const VERSION = '0.1.0';
+
+$help = <<<TXT
+wpguard — check a WordPress plugin against WordPress.org guidelines and WPCS.
+
+Usage: wpguard [path|plugin.zip] [options]
+
+  --format=text|json      Output format (default text)
+  --brief                 Hide the why/fix lines
+  --strict                Run PHPCS with --ignore-annotations (shows what phpcs:ignore hides)
+  --no-phpcs              Skip PHPCS
+  --phpcs-standard=NAME   PHPCS standard or ruleset file (default: project phpcs.xml[.dist], else WordPress)
+  --pcp[=WP_PATH]         Also run `wp plugin check <slug>` (needs WP-CLI and the plugin installed in that site); raw output
+  --slug=SLUG             WordPress.org slug (default: folder name)
+  --min-severity=LEVEL    high|medium|low|info (default low)
+  --fail-on=LEVEL         Exit 1 if any finding at or above this level (default high)
+  --rule=ID[,ID]          Only these rules
+  --ignore-rule=ID[,ID]   Skip these rules
+  --no-js                 Skip JS/CSS files
+  --include-build         Also scan compiled assets/ when src/ exists
+  --include-vendor        Also scan vendor/
+  --no-color              Plain output
+  --rules                 List built-in rules
+  -h, --help, --version
+
+Config: .wpguard.json in the plugin root, e.g.
+  {"ignore_rules":["WG-IFRAME"],"ignore_paths":["tests/","legacy/*"]}
+Inline: add `// wpguard-ignore: WG-RULE-ID` on the line or the line above.
+Exit codes: 0 ok, 1 findings at/above --fail-on, 2 usage error.
+
+TXT;
+
+$opt = array(
+	'format'         => 'text',
+	'brief'          => false,
+	'strict'         => false,
+	'phpcs'          => true,
+	'standard'       => null,
+	'pcp'            => false,
+	'wp_path'        => null,
+	'slug'           => null,
+	'min'            => 'low',
+	'fail'           => 'high',
+	'only'           => array(),
+	'ignore_rules'   => array(),
+	'ignore_paths'   => array(),
+	'skip_js'        => false,
+	'include_build'  => false,
+	'include_vendor' => false,
+	'color'          => function_exists( 'posix_isatty' ) && posix_isatty( STDOUT ),
+	'textdomain'     => null,
+);
+$path = null;
+
+foreach ( array_slice( $argv, 1 ) as $a ) {
+	if ( '-h' === $a || '--help' === $a ) {
+		echo $help;
+		exit( 0 );
+	}
+	if ( '--version' === $a ) {
+		echo "wpguard " . VERSION . "\n";
+		exit( 0 );
+	}
+	if ( '--rules' === $a ) {
+		foreach ( Rules::all() as $r ) {
+			printf( "%-26s %-6s Guideline %-9s %s\n", $r['id'], $r['severity'], $r['guideline'], $r['title'] );
+		}
+		foreach ( array(
+			array( 'WG-NO-ABSPATH', 'low', 'PHP file has no ABSPATH guard' ),
+			array( 'WG-OB-UNBALANCED', 'medium', 'ob_start() without matching close' ),
+			array( 'WG-TEXTDOMAIN', 'medium', 'Translation text domain differs from slug' ),
+			array( 'WG-HEADER-TEXTDOMAIN', 'medium', 'Plugin header text domain missing/wrong' ),
+			array( 'WG-HEADER-LICENSE', 'medium', 'Plugin header license missing/not GPL-compatible' ),
+			array( 'WG-TRADEMARK', 'medium', 'Plugin name starts with a brand' ),
+			array( 'WG-README-*', 'varies', 'readme.txt: missing, tags, stable tag, fields, services, source link' ),
+			array( 'WG-PACKAGE-FILE', 'medium', 'Build/backup/tool file present' ),
+		) as $r ) {
+			printf( "%-26s %-6s %s\n", $r[0], $r[1], $r[2] );
+		}
+		exit( 0 );
+	}
+	if ( 0 === strpos( $a, '--' ) ) {
+		$kv = explode( '=', substr( $a, 2 ), 2 );
+		$k  = $kv[0];
+		$v  = $kv[1] ?? null;
+		switch ( $k ) {
+			case 'format':
+				$opt['format'] = $v;
+				break;
+			case 'brief':
+				$opt['brief'] = true;
+				break;
+			case 'strict':
+				$opt['strict'] = true;
+				break;
+			case 'no-phpcs':
+				$opt['phpcs'] = false;
+				break;
+			case 'phpcs-standard':
+				$opt['standard'] = $v;
+				break;
+			case 'pcp':
+				$opt['pcp']     = true;
+				$opt['wp_path'] = $v;
+				break;
+			case 'slug':
+				$opt['slug'] = $v;
+				break;
+			case 'min-severity':
+				$opt['min'] = $v;
+				break;
+			case 'fail-on':
+				$opt['fail'] = $v;
+				break;
+			case 'rule':
+				$opt['only'] = array_filter( explode( ',', (string) $v ) );
+				break;
+			case 'ignore-rule':
+				$opt['ignore_rules'] = array_merge( $opt['ignore_rules'], array_filter( explode( ',', (string) $v ) ) );
+				break;
+			case 'no-js':
+				$opt['skip_js'] = true;
+				break;
+			case 'include-build':
+				$opt['include_build'] = true;
+				break;
+			case 'include-vendor':
+				$opt['include_vendor'] = true;
+				break;
+			case 'no-color':
+				$opt['color'] = false;
+				break;
+			default:
+				fwrite( STDERR, "Unknown option: $a\n" );
+				exit( 2 );
+		}
+	} elseif ( null === $path ) {
+		$path = $a;
+	} else {
+		fwrite( STDERR, "Only one path is accepted.\n" );
+		exit( 2 );
+	}
+}
+
+if ( ! isset( Reporter::ORDER[ $opt['min'] ] ) || ! isset( Reporter::ORDER[ $opt['fail'] ] ) || ! in_array( $opt['format'], array( 'text', 'json' ), true ) ) {
+	fwrite( STDERR, "Invalid --min-severity, --fail-on or --format value.\n" );
+	exit( 2 );
+}
+
+$path = $path ?? getcwd();
+$tmp  = null;
+
+if ( is_file( $path ) && preg_match( '/\.zip$/i', $path ) ) {
+	if ( ! class_exists( 'ZipArchive' ) ) {
+		fwrite( STDERR, "PHP zip extension is required to scan a ZIP.\n" );
+		exit( 2 );
+	}
+	$tmp = sys_get_temp_dir() . '/wpguard-' . bin2hex( random_bytes( 6 ) );
+	mkdir( $tmp, 0700 );
+	$zip = new \ZipArchive();
+	if ( true !== $zip->open( $path ) ) {
+		fwrite( STDERR, "Cannot open ZIP.\n" );
+		exit( 2 );
+	}
+	$zip->extractTo( $tmp );
+	$zip->close();
+	$dirs = glob( $tmp . '/*', GLOB_ONLYDIR );
+	$root = ( 1 === count( $dirs ) && 0 === count( glob( $tmp . '/*.php' ) ) ) ? $dirs[0] : $tmp;
+	register_shutdown_function(
+		function () use ( $tmp ) {
+			exec( 'rm -rf ' . escapeshellarg( $tmp ) );
+		}
+	);
+} elseif ( is_dir( $path ) ) {
+	$root = rtrim( (string) realpath( $path ), '/' );
+} else {
+	fwrite( STDERR, "Not a directory or .zip: $path\n" );
+	exit( 2 );
+}
+
+$cfgFile = $root . '/.wpguard.json';
+if ( is_file( $cfgFile ) ) {
+	$cfg = json_decode( (string) file_get_contents( $cfgFile ), true );
+	if ( is_array( $cfg ) ) {
+		$opt['ignore_rules'] = array_merge( $opt['ignore_rules'], (array) ( $cfg['ignore_rules'] ?? array() ) );
+		$opt['ignore_paths'] = array_merge( $opt['ignore_paths'], (array) ( $cfg['ignore_paths'] ?? array() ) );
+	}
+}
+
+$opt['slug']       = $opt['slug'] ?? basename( $root );
+$opt['textdomain'] = $opt['slug'];
+
+$started = microtime( true );
+$rep     = new Reporter( $opt['color'] );
+$show    = 'text' === $opt['format'];
+$count   = 0;
+if ( $show ) {
+	fwrite( STDERR, "Scanning {$root}\n" );
+	$opt['progress'] = function ( string $worst ) use ( $rep, &$count ) {
+		fwrite( STDERR, ' ' . $rep->dot( $worst ) );
+		if ( 0 === ++$count % 40 ) {
+			fwrite( STDERR, "\n" );
+		}
+	};
+}
+$scanner = new Scanner( $root, $opt );
+$scanner->run();
+if ( $show ) {
+	fwrite( STDERR, "\n" );
+}
+Checks::run( $scanner, $root, $opt );
+
+$findings = $scanner->findings;
+$notes    = $scanner->notes;
+
+if ( $opt['phpcs'] ) {
+	if ( $show ) {
+		fwrite( STDERR, "Running PHPCS...\n" );
+	}
+	$p         = new Phpcs();
+	$findings  = array_merge( $findings, $p->run( $root, $opt['strict'], $opt['standard'] ) );
+	$notes     = array_merge( $notes, $p->notes );
+}
+
+if ( $opt['only'] ) {
+	$findings = array_filter(
+		$findings,
+		function ( $f ) use ( $opt ) {
+			return in_array( $f['rule'], $opt['only'], true );
+		}
+	);
+}
+$findings = array_values(
+	array_filter(
+		$findings,
+		function ( $f ) use ( $opt ) {
+			return Reporter::ORDER[ $f['severity'] ] >= Reporter::ORDER[ $opt['min'] ];
+		}
+	)
+);
+usort(
+	$findings,
+	function ( $a, $b ) {
+		return array( $a['file'], $a['line'] ) <=> array( $b['file'], $b['line'] );
+	}
+);
+
+$meta = array(
+	'version' => VERSION,
+	'root'    => $root,
+	'slug'    => $opt['slug'],
+	'files'   => count( $scanner->files ),
+	'notes'   => $notes,
+	'time'    => microtime( true ) - $started,
+);
+echo 'json' === $opt['format'] ? $rep->json( $findings, $meta ) : $rep->text( $findings, $meta, $opt['brief'] );
+
+if ( $opt['pcp'] ) {
+	$wp = trim( (string) shell_exec( 'command -v wp 2>/dev/null' ) );
+	if ( '' === $wp ) {
+		fwrite( STDERR, "\n--pcp: WP-CLI (wp) not found.\n" );
+	} else {
+		echo "\n=== Plugin Check (wp plugin check {$opt['slug']}) ===\n";
+		$cmd = escapeshellarg( $wp ) . ' plugin check ' . escapeshellarg( $opt['slug'] ) . ( $opt['wp_path'] ? ' --path=' . escapeshellarg( $opt['wp_path'] ) : '' ) . ' 2>&1';
+		passthru( $cmd );
+	}
+}
+
+foreach ( $findings as $f ) {
+	if ( Reporter::ORDER[ $f['severity'] ] >= Reporter::ORDER[ $opt['fail'] ] ) {
+		exit( 1 );
+	}
+}
+exit( 0 );

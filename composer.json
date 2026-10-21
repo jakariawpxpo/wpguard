@@ -1,0 +1,21 @@
+{
+	"name": "jakariawpxpo/wpguard",
+	"description": "RuboCop/Brakeman-style checker for WordPress plugins: WordPress.org guideline candidates, PHPCS (WPCS) and Plugin Check in one report.",
+	"type": "library",
+	"keywords": ["wordpress", "plugin", "phpcs", "wpcs", "lint", "wordpress.org", "guidelines"],
+	"license": "MIT",
+	"require": {
+		"php": ">=7.4"
+	},
+	"suggest": {
+		"squizlabs/php_codesniffer": "Needed for the PHPCS step",
+		"wp-coding-standards/wpcs": "WordPress Coding Standards for the PHPCS step",
+		"ext-zip": "Needed to scan a release .zip"
+	},
+	"autoload": {
+		"psr-4": {
+			"WpGuard\\": "src/"
+		}
+	},
+	"bin": ["bin/wpguard"]
+}

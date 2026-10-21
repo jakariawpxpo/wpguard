@@ -1,0 +1,4 @@
+.wpguard-cache/
+vendor/
+composer.lock
+.DS_Store
