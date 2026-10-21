@@ -185,7 +185,7 @@ final class Checks {
 			$size = number_format( filesize( $root . '/' . $f ) / 1024, 1 ) . ' KB';
 			self::emit( $s, $opts, 'WG-PACKAGE-FILE', 'medium', 'Technical', "Suspicious file in package: $f", $why, 'Exclude it from the release build (verify your build excludes it).', $f, array( "(file, $size)" ), 0 );
 		}
-		foreach ( array( 'node_modules', 'build', '.git', 'tests' ) as $d ) {
+		foreach ( array( 'node_modules', 'build', '.git' ) as $d ) {
 			if ( is_dir( $root . '/' . $d ) ) {
 				$s->notes[] = "$d/ exists in this directory and was not scanned; make sure the release ZIP excludes it.";
 			}

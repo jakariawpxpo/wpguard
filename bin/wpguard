@@ -16,7 +16,7 @@ foreach ( array( 'Rules', 'Scanner', 'Checks', 'Phpcs', 'Reporter' ) as $cls ) {
 	require_once "$base/src/$cls.php";
 }
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 $help = <<<TXT
 wpguard — check a WordPress plugin against WordPress.org guidelines and WPCS.
@@ -37,6 +37,7 @@ Usage: wpguard [path|plugin.zip] [options]
   --no-js                 Skip JS/CSS files
   --include-build         Also scan compiled assets/ when src/ exists
   --include-vendor        Also scan vendor/
+  --include-tests         Also scan test files (tests/, *Test.php, *.test.js ... are skipped by default)
   --no-color              Plain output
   --rules                 List built-in rules
   -h, --help, --version
@@ -65,6 +66,7 @@ $opt = array(
 	'skip_js'        => false,
 	'include_build'  => false,
 	'include_vendor' => false,
+	'include_tests'  => false,
 	'color'          => function_exists( 'posix_isatty' ) && posix_isatty( STDOUT ),
 	'textdomain'     => null,
 );
@@ -141,6 +143,9 @@ foreach ( array_slice( $argv, 1 ) as $a ) {
 				break;
 			case 'include-build':
 				$opt['include_build'] = true;
+				break;
+			case 'include-tests':
+				$opt['include_tests'] = true;
 				break;
 			case 'include-vendor':
 				$opt['include_vendor'] = true;
@@ -236,7 +241,7 @@ if ( $opt['phpcs'] ) {
 		fwrite( STDERR, "Running PHPCS...\n" );
 	}
 	$p         = new Phpcs();
-	$findings  = array_merge( $findings, $p->run( $root, $opt['strict'], $opt['standard'] ) );
+	$findings  = array_merge( $findings, $p->run( $root, $opt['strict'], $opt['standard'], $opt['include_tests'] ) );
 	$notes     = array_merge( $notes, $p->notes );
 }
 

@@ -10,7 +10,7 @@ final class Phpcs {
 	/** @var string[] */
 	public $notes = array();
 
-	public function run( string $root, bool $strict, ?string $standard ): array {
+	public function run( string $root, bool $strict, ?string $standard, bool $tests = false ): array {
 		$bin = $this->binary( $root );
 		if ( null === $bin ) {
 			$this->notes[] = 'PHPCS not found (install squizlabs/php_codesniffer + wp-coding-standards/wpcs, or use --no-phpcs).';
@@ -32,7 +32,7 @@ final class Phpcs {
 			'-q',
 			'--extensions=php',
 			'--standard=' . $standard,
-			'--ignore=*/node_modules/*,*/vendor/*,*/build/*,*/assets/*',
+			'--ignore=*/node_modules/*,*/vendor/*,*/build/*,*/assets/*' . ( $tests ? '' : ',*/tests/*,*/test/*,*/__tests__/*,*Test.php,*TestCase.php' ),
 		);
 		if ( $strict ) {
 			$cmd[] = '--ignore-annotations';

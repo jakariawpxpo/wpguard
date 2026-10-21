@@ -5,6 +5,8 @@ namespace WpGuard;
 final class Scanner {
 
 	private const SKIP_DIRS   = array( 'node_modules', '.git', '.svn', 'build', '.idea', '.vscode' );
+	private const TEST_DIRS   = array( 'tests', 'test', '__tests__', '__mocks__', 'spec', 'e2e', 'cypress' );
+	private const TEST_FILE   = '/(Test\.php|Tests\.php|TestCase\.php|\.(test|spec)\.(js|jsx|ts|tsx|mjs))$|^phpunit(\.xml)?(\.dist)?$/';
 	private const MAX_BYTES   = 3000000;
 	private const SCAN_EXT    = array( 'php', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'css', 'scss' );
 	private const CONTEXT     = 1;
@@ -113,6 +115,9 @@ final class Scanner {
 				if ( $this->suppressed( $lines, $i, $rule['id'] ) ) {
 					continue;
 				}
+				if ( 'WG-ECHO-UNESCAPED' === $rule['id'] && ! self::printsVariable( $line, $m[0][1] ) ) {
+					continue;
+				}
 				$this->add( $rule, $rel, $lines, $i, $m[0][1] );
 			}
 		}
@@ -194,6 +199,32 @@ final class Scanner {
 		}
 	}
 
+	/**
+	 * Whether the echoed expression can print a variable's value.
+	 * Variables used only in a ternary condition do not count: `echo $a ? 'x' : 'y'` prints a literal.
+	 */
+	public static function printsVariable( string $line, int $offset ): bool {
+		$expr = substr( $line, $offset );
+		$expr = preg_replace( '/^(echo|print)\s+/', '', $expr );
+		$end  = preg_match( '/;|\?>/', $expr, $m, PREG_OFFSET_CAPTURE ) ? $m[0][1] : strlen( $expr );
+		$expr = substr( $expr, 0, $end );
+		// Literal strings carry no variable; a double-quoted string with interpolation does.
+		$expr = preg_replace( "/'(?:[^'\\\\]|\\\\.)*'/", "'S'", $expr );
+		$expr = preg_replace_callback(
+			'/"(?:[^"\\\\]|\\\\.)*"/',
+			function ( $mm ) {
+				return preg_match( '/\$|\{/', $mm[0] ) ? '"$V"' : "'S'";
+			},
+			$expr
+		);
+		$expr = str_replace( '??', '\0\0', $expr );
+		$q    = strpos( $expr, '?' );
+		if ( false !== $q ) {
+			$expr = substr( $expr, $q + 1 ); // Only the branches are printed.
+		}
+		return false !== strpos( $expr, '$' );
+	}
+
 	private function suppressed( array $lines, int $i, string $id ): bool {
 		foreach ( array( $i, $i - 1 ) as $n ) {
 			if ( isset( $lines[ $n ] ) && preg_match( '/wpguard-ignore(?::\s*([A-Z0-9, -]+))?/', $lines[ $n ], $m ) ) {
@@ -251,14 +282,14 @@ final class Scanner {
 			$full = $dir . '/' . $item;
 			$rel  = $prefix . $item;
 			if ( is_dir( $full ) ) {
-				if ( in_array( $item, self::SKIP_DIRS, true ) || ( 'vendor' === $item && ! $this->opts['include_vendor'] ) ) {
+				if ( in_array( $item, self::SKIP_DIRS, true ) || ( ! $this->opts['include_tests'] && in_array( $item, self::TEST_DIRS, true ) ) || ( 'vendor' === $item && ! $this->opts['include_vendor'] ) ) {
 					continue;
 				}
 				if ( $this->pathIgnored( $rel . '/' ) ) {
 					continue;
 				}
 				$out = array_merge( $out, $this->collect( $full, $rel . '/' ) );
-			} elseif ( ! $this->pathIgnored( $rel ) ) {
+			} elseif ( ! $this->pathIgnored( $rel ) && ( $this->opts['include_tests'] || ! preg_match( self::TEST_FILE, $item ) ) ) {
 				$out[] = $rel;
 			}
 		}
