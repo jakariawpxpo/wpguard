@@ -1,3 +1,5 @@
+<img width="1672" height="941" alt="wpguard WordPress Security Scanner" src="https://github.com/user-attachments/assets/f4b7c2a4-147e-4d13-a1fe-88094be15272" />
+
 # wpguard
 
 RuboCop/Brakeman-style checker for WordPress plugins, written in PHP. It combines:
