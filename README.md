@@ -33,3 +33,5 @@ Or with Composer, once published to Packagist: `composer global require jakariaw
 Needs PHP 7.4+ (the `zip` extension for ZIP input). Not an official WordPress.org tool; a clean run is not an approval.
 
 Limits: line-based regex rules, so multi-line constructs are missed and some hits are false positives. Trialware, service-substance and readme-versus-code parity still need human review.
+
+<a href="https://www.buymeacoffee.com/jakaria.jack" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" style="height: 60px !important;width: 217px !important;" ></a>
