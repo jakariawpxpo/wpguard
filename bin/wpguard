@@ -16,7 +16,7 @@ foreach ( array( 'Rules', 'Scanner', 'Checks', 'Phpcs', 'Reporter' ) as $cls ) {
 	require_once "$base/src/$cls.php";
 }
 
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 
 $help = <<<TXT
 wpguard — check a WordPress plugin against WordPress.org guidelines and WPCS.
@@ -224,7 +224,6 @@ if ( $opt['fix'] ) {
 		exit( 2 );
 	}
 	$fixer = new Phpcs();
-	fwrite( STDERR, "Fixing with phpcbf (== to === is never auto-fixed)...\n" );
 	$fixer->fix( $root, $opt['strict'], $opt['standard'], $opt['include_tests'] );
 	foreach ( $fixer->notes as $n ) {
 		fwrite( STDERR, "$n\n" );
