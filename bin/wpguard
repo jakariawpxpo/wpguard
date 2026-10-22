@@ -16,7 +16,7 @@ foreach ( array( 'Rules', 'Scanner', 'Checks', 'Phpcs', 'Reporter' ) as $cls ) {
 	require_once "$base/src/$cls.php";
 }
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 
 $help = <<<TXT
 wpguard — check a WordPress plugin against WordPress.org guidelines and WPCS.
@@ -27,6 +27,7 @@ Usage: wpguard [path|plugin.zip] [options]
   --brief                 Hide the why/fix lines
   --strict                Run PHPCS with --ignore-annotations (shows what phpcs:ignore hides)
   --no-phpcs              Skip PHPCS
+  --fix                   Run phpcbf to auto-fix formatting/standards issues in place, then scan. Never changes == to ===
   --phpcs-standard=NAME   PHPCS standard or ruleset file (default: project phpcs.xml[.dist], else WordPress)
   --pcp[=WP_PATH]         Also run `wp plugin check <slug>` (needs WP-CLI and the plugin installed in that site); raw output
   --slug=SLUG             WordPress.org slug (default: folder name)
@@ -54,6 +55,7 @@ $opt = array(
 	'brief'          => false,
 	'strict'         => false,
 	'phpcs'          => true,
+	'fix'            => false,
 	'standard'       => null,
 	'pcp'            => false,
 	'wp_path'        => null,
@@ -112,6 +114,9 @@ foreach ( array_slice( $argv, 1 ) as $a ) {
 				break;
 			case 'strict':
 				$opt['strict'] = true;
+				break;
+			case 'fix':
+				$opt['fix'] = true;
 				break;
 			case 'no-phpcs':
 				$opt['phpcs'] = false;
@@ -213,15 +218,30 @@ if ( is_file( $cfgFile ) ) {
 $opt['slug']       = $opt['slug'] ?? basename( $root );
 $opt['textdomain'] = $opt['slug'];
 
+if ( $opt['fix'] ) {
+	if ( null !== $tmp ) {
+		fwrite( STDERR, "--fix cannot modify a ZIP; extract it first.\n" );
+		exit( 2 );
+	}
+	$fixer = new Phpcs();
+	fwrite( STDERR, "Fixing with phpcbf (== to === is never auto-fixed)...\n" );
+	$fixer->fix( $root, $opt['strict'], $opt['standard'], $opt['include_tests'] );
+	foreach ( $fixer->notes as $n ) {
+		fwrite( STDERR, "$n\n" );
+	}
+}
+
 $started = microtime( true );
 $rep     = new Reporter( $opt['color'] );
 $show    = 'text' === $opt['format'];
 $count   = 0;
 if ( $show ) {
 	fwrite( STDERR, "Scanning {$root}\n" );
-	$opt['progress'] = function ( string $worst ) use ( $rep, &$count ) {
+	$cols  = (int) getenv( 'COLUMNS' ) ?: (int) @shell_exec( 'tput cols 2>/dev/null </dev/tty' ) ?: 80;
+	$perln = max( 1, intdiv( $cols, 2 ) );
+	$opt['progress'] = function ( string $worst ) use ( $rep, &$count, $perln ) {
 		fwrite( STDERR, ' ' . $rep->dot( $worst ) );
-		if ( 0 === ++$count % 40 ) {
+		if ( 0 === ++$count % $perln ) {
 			fwrite( STDERR, "\n" );
 		}
 	};
